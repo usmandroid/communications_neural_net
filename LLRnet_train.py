@@ -146,13 +146,15 @@ class Modulation_Map():
 
 
 class Transmitter_Receiver():
-    def __init__(self, num_bits_send, modulation, llr_calc='exact'):
+    def __init__(self, num_bits_send, modulation, llr_calc='exact', scale_modulation = True):
         self.num_bits_send = num_bits_send
         self.modulation = modulation
         self.modulation_map = Modulation_Map(modulation)
         self.Scrambling = True
         self.Interleaving = True
         self.llr_calc = llr_calc
+        self.scale_modulation  = scale_modulation
+
         if modulation == '4QAM':
             self.M = 4;
             self.k = 2;
@@ -178,6 +180,7 @@ class Transmitter_Receiver():
             self.k = 3;
             self.binary_matrix = PSK_8_b
 
+        self.scaling_factor = self.get_scaling()
     def send_n_receive(self, snr, verbose=False):
         self.snr = snr
         N_0 = self.snr_to_N0()
@@ -222,7 +225,15 @@ class Transmitter_Receiver():
             print('Finished decoding %d bits...' % (self.num_bits_send))
             print('Number of Bit Errors: {}'.format(bit_error))
             print('Bit Error Rate:{}\n'.format(bit_error_rate))
-
+    def get_scaling(self):
+        scaling_dict = {1: 1 ,2: np.sqrt(2), 4: np.sqrt(10),6: np.sqrt(42)}
+        k = self.k
+        modulation = self.modulation
+        if not self.scale_modulation:
+            scaling_factor = 1
+        else:
+            scaling_factor = scaling_dict[k]
+        return scaling_factor
     def r_to_llr(self, r):
         '''
     Returns: k array of llrs
@@ -240,10 +251,12 @@ class Transmitter_Receiver():
             SCIPYLOGSUMEXP = False
             if SCIPYLOGSUMEXP:
                 for key in modulation_map.bin_to_coordinate.keys():
+
                     r_ = modulation_map.bin_to_coordinate[key]
                     r_ = np.array([r_[0], r_[1]])
+                    scale = 1/self.scaling_factor
                     # custom_norm = np.abs(r[0] +1j*r[1])**2 +  np.abs(r_[0] +1j*r_[1])**2 -2*(r[0]*r_[0] + r[1]*r_[1])
-                    exponent = -1.0 * (np.linalg.norm(r_ - r) ** 2) # / (2*self.N_0)
+                    exponent = -1.0 * (np.linalg.norm(scale*(r_ - r)) ** 2)  / (2*self.snr_to_N0_bpsk())
                     # exponent = -1 * custom_norm/(self.N_0)
                     if key[k - i - 1] == '0':
                         num_values.append(exponent)
@@ -257,7 +270,9 @@ class Transmitter_Receiver():
                 for key in modulation_map.bin_to_coordinate.keys():
                     r_ = modulation_map.bin_to_coordinate[key]
                     r_ = np.array([r_[0], r_[1]])
-                    exponent = -1.0 * (np.linalg.norm(r_ - r) ** 2) #  / (self.N_0)
+                    scale = 1/self.scaling_factor
+
+                    exponent = -1.0 * (np.linalg.norm(scale*(r_ - r)) ** 2)   / (2*self.snr_to_N0_bpsk())
                     total = np.exp(exponent)
                     if key[k - i - 1] == '0':
                         zero_sum += total
@@ -283,6 +298,7 @@ class Transmitter_Receiver():
         k = self.k
         modulation_map = self.modulation_map
         llr = np.zeros(k)
+        scale = 1/self.scaling_factor
         for i in range(k):
             zero_sum, one_sum = [], []
             for key in modulation_map.bin_to_coordinate.keys():
@@ -290,13 +306,14 @@ class Transmitter_Receiver():
 
                 r_ = np.array([r_[0], r_[1]])
                 # print(f"r_:  {r_.shape}")
-                exponent = np.linalg.norm(r - r_) ** 2
+
+                exponent = np.linalg.norm(scale*(r - r_)) ** 2
                 total = exponent
                 if key[k - i - 1] == '0':
                     zero_sum.append(total)
                 else:
                     one_sum.append(total)
-            llr[i] =  (min(one_sum) - min(zero_sum)) # * (1 / (2*self.N_0))
+            llr[i] =  (min(one_sum) - min(zero_sum))   * (1 / (2*self.snr_to_N0_bpsk()))
             llr[i] = 10 ** -5 if llr[i] == 0 else llr[i]
         return llr
 
@@ -310,6 +327,14 @@ class Transmitter_Receiver():
             sum += value[0] ** 2 + value[1] ** 2
         e_avg = sum / M
 
+        return e_avg / (k * snr)
+
+    def snr_to_N0_bpsk(self):
+        '''
+    Returns: float N0 for BPSK
+    '''
+        k, M, snr = 1,2, 10 ** (self.snr / 10)
+        e_avg = 1
         return e_avg / (k * snr)
 
     def bi2de(self, binary):
@@ -428,7 +453,7 @@ class Transmitter_Receiver():
 
 
 # modulation_list = ['BPSK', '4QAM', '16QAM', '64QAM']
-# snr = 25
+# snr = 0
 # fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(25, 5))
 # axes = [ax1, ax2, ax3, ax4]
 # for modulation, ax in zip(modulation_list, axes):
@@ -439,7 +464,7 @@ class Transmitter_Receiver():
 #     ax.set_xlabel('Re');
 #     ax.set_ylabel('Im')
 #     ax.set_aspect('equal')
-#
+# plt.show()
 
 # In[58]:
 
@@ -687,8 +712,9 @@ SNR_Range = [-10,30]  # 0,31
 spacing = 1
 snr_list = np.linspace(SNR_Range[0], SNR_Range[1], int(np.abs(SNR_Range[0] - SNR_Range[1]) * 1 / spacing) + 1)
 llr_calc = 'exact'
-modulation_list = ['64QAM'] #  'BPSK','4QAM','16QAM','64QAM'
-train_snr = 35
+modulation_list = ['BPSK','4QAM','16QAM','64QAM'] #  'BPSK','4QAM','16QAM','64QAM'
+train_snr = 20
+input_dim = 2 # 2 | 3
 single_SNR = True
 wide_snrRange = [0,10]
 training_size = 100000
@@ -708,7 +734,7 @@ axes2 = [ax11, ax22, ax33, ax44]
 
 for n, modulation in enumerate(modulation_list):
     a = LLR_net(modulation, training_size=training_size, test_size=10000, train_snr=train_snr,
-                activation='relu', llr_calc=llr_calc, single_SNR = single_SNR)
+                activation='relu', llr_calc=llr_calc, input_dim  = input_dim, single_SNR = single_SNR)
     a.epoch_size = epoch_size
     a.train(wide_snrRange = wide_snrRange)
     for snr in snr_list:

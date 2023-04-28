@@ -707,12 +707,12 @@ class LLR_net():
 
 # In[125]:
 
-
-SNR_Range = [-10,30]  # 0,31
+Channel = 'AWGN'
+SNR_Range = [-10,18]  # 0,31
 spacing = 1
 snr_list = np.linspace(SNR_Range[0], SNR_Range[1], int(np.abs(SNR_Range[0] - SNR_Range[1]) * 1 / spacing) + 1)
 llr_calc = 'exact'
-modulation_list = ['BPSK','4QAM','16QAM','64QAM'] #  'BPSK','4QAM','16QAM','64QAM'
+modulation_list = ['BPSK'] #  'BPSK','4QAM','16QAM','64QAM'
 train_snr = 20
 input_dim = 2 # 2 | 3
 single_SNR = True
@@ -732,11 +732,34 @@ axes = [ax1, ax2, ax3, ax4]
 fig2, (ax11, ax22, ax33, ax44) = plt.subplots(1, 4, figsize=(25, 5))
 axes2 = [ax11, ax22, ax33, ax44]
 
+NAMES = ['LLRnet-BPSK-snr20-exact-20230203_07202705',
+    'LLRnet-4QAM-snr20-exact-20230203_07234305',
+    'LLRnet-16QAM-snr20-exact-20230203_07253405',
+'LLRnet-64QAM-snr20-exact-20230203_07271205'
+
+]
+
+TRAINING = False
+BER = {}
+
 for n, modulation in enumerate(modulation_list):
-    a = LLR_net(modulation, training_size=training_size, test_size=10000, train_snr=train_snr,
-                activation='relu', llr_calc=llr_calc, input_dim  = input_dim, single_SNR = single_SNR)
-    a.epoch_size = epoch_size
-    a.train(wide_snrRange = wide_snrRange)
+    
+    if TRAINING:
+        llrnet = LLR_net(modulation, training_size=training_size, test_size=10000, train_snr=train_snr,
+                    activation='relu', llr_calc=llr_calc, input_dim  = input_dim, single_SNR = single_SNR)
+        llrnet.epoch_size = epoch_size
+        llrnet.train(wide_snrRange = wide_snrRange)
+        'logs/{}/{}_SNRvsBER.png'.format(NAME, NAME)
+        model_object_path =  'logs/{}/{}_{}_model.pkl'.format(NAME, NAME, modulation)
+        
+        with open(model_object_path, 'wb') as f:
+            pickle.dump(llrnet, f)
+    else:
+        
+        model_object_path =  'logs/{}/{}_{}_model.pkl'.format(NAMES[0], NAMES[0], modulation)
+        with open(model_object_path, 'rb') as f:
+            a = pickle.load(f)
+        
     for snr in snr_list:
         # a = LLR_net(modulation, 10000, 20000, train_snr = snr, test_snr = snr, activation = 'relu')
         # a.train()
@@ -746,21 +769,40 @@ for n, modulation in enumerate(modulation_list):
         llr_conventional[n].append(a.b_error)
         conventional_error[n].append(a.conventional_error)
         th_error[n].append(theoretical_bit_error_rate(modulation, snr))
+    BER['llr_conventional'] =  llr_conventional
+    BER['conventional_error'] = conventional_error
+    BER['th_error']  = th_error
+    print('\n')
+    print(modulation)
+    print(BER)
+    print('\n')
     axes[n].plot(snr_list, llr_net_accuracy[n], linewidth=5, label='LLRnet Accuracy')
     axes[n].set_title(modulation)
-    axes[n].set_ylim((0, 1))
+    axes[n].set_ylim( 1e-4 ,1)
+                     
     axes[n].set(xlabel='SNR (dB)', ylabel='Model Accuracy')
-    axes2[n].semilogy(snr_list, llr_conventional[n], linewidth = 5, label = 'Neural Net BER')
-    axes2[n].semilogy(snr_list, conventional_error[n], label = 'Conventional BER')
-    axes2[n].semilogy(snr_list, th_error[n], label = 'Theoretical BER')
+    axes2[n].semilogy(snr_list, llr_conventional[n], linewidth = 5, label = 'LLRnet')
+    axes2[n].semilogy(snr_list, conventional_error[n], label = 'log-MAP')
+    axes2[n].semilogy(snr_list, th_error[n], label = 'Theoretical bound')
     axes2[n].set_title(modulation)
-    axes2[n].set(xlabel = 'snr (dB)', ylabel = 'Bit Error Rate')
-ax1.legend()
-ax11.legend()
+    axes2[n].set(xlabel = 'snr (dB)', ylabel = 'BER')
+    axes2[n].set_ylim( 1e-4 ,1 )
+    if modulation == 'BPSK':
+        axes2[n].set_xlim(0,7)
+        
+    if modulation == 'QPSK':
+        axes2[n].set_xlim(0,7)
+    if modulation == '16PSK':
+        axes2[n].set_xlim(0,11)
+    if modulation == '64SK':
+        axes2[n].set_xlim(0,16)
+    
+ax1.legend(fontsize = 'medium')
+ax11.legend(fontsize = 'medium')
 plotname = 'logs/{}/{}_SNRvsMSE.png'.format(NAME, NAME)
-fig.savefig(plotname)
+fig.savefig(plotname, dpi = 300)
 plotname = 'logs/{}/{}_SNRvsBER.png'.format(NAME, NAME)
-fig2.savefig(plotname)
+fig2.savefig(plotname, dpi = 300)
 
 #     llr_net_accuracy[n].append(a.accuracy)
 #     llr_conventional[n].append(a.b_error)
